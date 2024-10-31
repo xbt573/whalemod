@@ -21,7 +21,7 @@
 #include "whale.h"
 
 MODULE_AUTHOR("Alexey Lunev");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("Dual MIT/GPL");
 MODULE_DESCRIPTION("Kernel module with whales");
 
 static int major;
