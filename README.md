@@ -9,3 +9,4 @@ $ cat /dev/whale
 ```
 
 Make sure you have kernel headers installed
+

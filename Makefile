@@ -1,7 +1,6 @@
-KERNEL = $(shell uname -r)
-obj-m := whale.o
-
-PWD := $(CURDIR)
+KERNEL 	:= $(shell uname -r)
+PWD	:= $(CURDIR)
+obj-m 	:= whale.o
 
 all:
 	make -C /lib/modules/$(KERNEL)/build M=$(PWD) modules

@@ -1,181 +1,120 @@
 /*
- * whale.c: Outputs whale ASCII art at init and creates
- * block device returning only whales
- * 
+ * whale.c - Kernel module with whales
  *        .
  *       ":"
  *     ___:____     |"\/"|
  *   ,'        `.    \  /
  *   |  O        \___/  |
  * ~^~^~^~^~^~^~^~^~^~^~^~^~
- *
  */
-#include <linux/kernel.h>
+
 #include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/printk.h>
+#include <linux/init.h>
 #include <linux/fs.h>
+#include <linux/version.h>
 #include <linux/device.h>
-#include <asm/uaccess.h>
+#include <linux/types.h>
+#include <linux/uaccess.h>
+
 #include "whale.h"
 
-static int whale_major;
-static int whalestream_major;
+MODULE_AUTHOR("Alexey Lunev");
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Kernel module with whales");
 
-static char whale_msg[BUF_LEN];
-static char *whale_msg_ptr;
-
-static char whalestream_msg[BUF_LEN];
-static char *whalestream_msg_ptr;
-
-static struct class *whale_cls;
-static struct class *whalestream_cls;
+static int major;
+static struct class *cls;
 
 static struct file_operations whale_fops = {
-    .read    = whale_device_read,
-    .write   = whale_device_write,
-    .open    = whale_device_open,
-    .release = whale_device_release
+	.read 		= whale_read,
+	.write 		= whale_write,
+	.open 		= whale_open,
+	.release 	= whale_release
 };
 
-static struct file_operations whalestream_fops = {
-    .read    = whalestream_device_read,
-    .write   = whalestream_device_write,
-    .open    = whalestream_device_open,
-    .release = whalestream_device_release
-};
+static int __init whale_init(void) {
+	major = register_chrdev(0, DEVICE_NAME, &whale_fops);
+	if (major < 0) {
+		pr_alert("Registering char device failed with %d\n", major);
+		return major;
+	};
 
-int init_module(void)
-{
-    whale_major = register_chrdev(0, WHALE_DEVICE_NAME, &whale_fops);
-    if (whale_major < 0) {
-        printk(KERN_ALERT "Registering char device whale failed with %d\n", whale_major);
-        return whale_major;
-    }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+	cls = class_create(DEVICE_NAME);
+#else
+	cls = class_create(THIS_MODULE, DEVICE_NAME);
+#endif
+	cls->devnode = whale_devnode;
 
-    whalestream_major = register_chrdev(0, WHALESTREAM_DEVICE_NAME, &whalestream_fops);
-    if (whale_major < 0) {
-        printk(KERN_ALERT "Registering char device whalestream failed with %d\n", whalestream_major);
-        return whalestream_major;
-    }
+	device_create(cls, NULL, MKDEV(major, 0), NULL, DEVICE_NAME);
 
-    whale_cls = class_create(WHALE_DEVICE_NAME);
-    whalestream_cls = class_create(WHALESTREAM_DEVICE_NAME);
-
-    whale_cls->dev_uevent = whale_uevent;
-    whalestream_cls->dev_uevent = whalestream_uevent;
-
-    device_create(whale_cls, NULL, MKDEV(whale_major, 0), NULL, WHALE_DEVICE_NAME);
-    device_create(whalestream_cls, NULL, MKDEV(whalestream_major, 0), NULL, WHALESTREAM_DEVICE_NAME);
-
-    printk(KERN_INFO WHALE);
-    return SUCCESS;
+	pr_info(WHALE);
+	return SUCCESS;
 }
 
-void cleanup_module(void)
-{
-    unregister_chrdev(whale_major, WHALE_DEVICE_NAME);
-    unregister_chrdev(whalestream_major, WHALESTREAM_DEVICE_NAME);
+static void __exit whale_exit(void) {
+	device_destroy(cls, MKDEV(major, 0));
+	class_destroy(cls);
 
-    class_destroy(whale_cls);
-    class_destroy(whalestream_cls);
-
-    unregister_chrdev(whale_major, WHALE_DEVICE_NAME);
-    unregister_chrdev(whalestream_major, WHALESTREAM_DEVICE_NAME);
+	unregister_chrdev(major, DEVICE_NAME);
 }
 
-static int whale_device_open(struct inode *inode, struct file *file)
-{
-    sprintf(whale_msg, WHALE);
-    whale_msg_ptr = whale_msg;
+static int whale_open(struct inode *inode, struct file *file) {
+	try_module_get(THIS_MODULE);
 
-    try_module_get(THIS_MODULE);
-
-    return SUCCESS;
+	return SUCCESS;
 }
 
-static int whalestream_device_open(struct inode *inode, struct file *file)
-{
-    sprintf(whalestream_msg, WHALE);
-    whalestream_msg_ptr = whalestream_msg;
+static int whale_release(struct inode *inode, struct file *file) {
+	module_put(THIS_MODULE);
 
-    try_module_get(THIS_MODULE);
-
-    return SUCCESS;
+	return SUCCESS;
 }
 
-static int whale_device_release(struct inode *inode, struct file *file)
-{
-    module_put(THIS_MODULE);
+static ssize_t whale_read(
+		struct file *filp,
+		char __user *buffer,
+		size_t length,
+		loff_t *offset
+) {
+	int bytes_read = 0;
+	const char *msg = WHALE;
 
-    return 0;
+	if (!*(msg + *offset)) {
+		*offset = 0;
+		return 0;
+	}
+
+	while (length && *msg) {
+		put_user(*(msg++), buffer++);
+
+		length--;
+		bytes_read++;
+	}
+
+	*offset += bytes_read;
+
+	return bytes_read;
 }
 
-static int whalestream_device_release(struct inode *inode, struct file *file)
-{
-    module_put(THIS_MODULE);
-
-    return 0;
+static ssize_t whale_write(
+		struct file *filp,
+		const char __user *buffer,
+		size_t length,
+		loff_t *offset		
+) {
+	return -EINVAL;
 }
 
-static ssize_t whale_device_read(struct file *filp,
-        char *buffer,
-        size_t length,
-        loff_t * offset)
-{
-    int bytes_read = 0;
-
-    if (*whale_msg_ptr == 0)
-        return 0;
-
-    while (length && *whale_msg_ptr) {
-        put_user(*(whale_msg_ptr++), buffer++);
-
-        length--;
-        bytes_read++;
-    }
-
-    return bytes_read;
+static char *whale_devnode(const struct device *dev, umode_t *mode) {
+	if (!mode)
+		return NULL;
+	if (dev->devt == MKDEV(major, 0))
+		*mode = 0444;
+	return NULL;
 }
 
-static ssize_t whalestream_device_read(struct file *filp,
-        char *buffer,
-        size_t length,
-        loff_t * offset)
-{
-    int bytes_read = 0;
-
-    if (*whalestream_msg_ptr == 0)
-        whalestream_msg_ptr = whalestream_msg;
-
-    while (length && *whalestream_msg_ptr) {
-        put_user(*(whalestream_msg_ptr++), buffer++);
-
-        length--;
-        bytes_read++;
-    }
-
-    return bytes_read;
-}
-
-static ssize_t whale_device_write(struct file *filp, const char *buff, size_t len, loff_t * off)
-{
-    return -EINVAL;
-}
-
-static ssize_t whalestream_device_write(struct file *filp, const char *buff, size_t len, loff_t * off)
-{
-    return -EINVAL;
-}
-
-static int whale_uevent(const struct device *dev, struct kobj_uevent_env *env)
-{
-    add_uevent_var(env, "DEVMODE=%#o", 0666);
-    return SUCCESS;
-}
-
-static int whalestream_uevent(const struct device *dev, struct kobj_uevent_env *env)
-{
-    add_uevent_var(env, "DEVMODE=%#o", 0666);
-    return SUCCESS;
-}
-
-MODULE_LICENSE("GPL");
+module_init(whale_init);
+module_exit(whale_exit);
